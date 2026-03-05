@@ -16,6 +16,7 @@ int main()
     IMMDeviceEnumerator* enumerator = NULL;
     IMMDevice* device = NULL;
     IAudioClient* audioClient = NULL;
+    IAudioClient* renderAudioClient = NULL;
 
     hr = CoCreateInstance(
         __uuidof(MMDeviceEnumerator),
@@ -26,7 +27,7 @@ int main()
     );
 
     hr = enumerator->GetDefaultAudioEndpoint(
-        eRender, //changer en eCapture
+        eCapture, //changer en eCapture ou eRender
         eConsole,
         &device
         );
@@ -38,12 +39,28 @@ int main()
         (void**)&audioClient
     );
 
+    hr = device->Activate(
+        __uuidof(IAudioClient),
+        CLSCTX_ALL,
+        nullptr,
+        (void**)&renderAudioClient
+    );
+
     WAVEFORMATEX* pwfx = NULL;
     audioClient->GetMixFormat(&pwfx);
 
     audioClient->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
-        AUDCLNT_STREAMFLAGS_LOOPBACK, //enlever ca
+        AUDCLNT_STREAMFLAGS_LOOPBACK,//enlever ca ou AUDCLNT_STREAMFLAGS_LOOPBACK
+        10000000,
+        0,
+        pwfx,
+        NULL
+    );
+
+    renderAudioClient->Initialize(
+        AUDCLNT_SHAREMODE_SHARED,
+        0,
         10000000,
         0,
         pwfx,
@@ -51,13 +68,20 @@ int main()
     );
 
     IAudioCaptureClient* captureCLient = nullptr;
+    IAudioRenderClient* renderClient = nullptr;
 
     audioClient->GetService(
         __uuidof(IAudioCaptureClient),
         (void**)&captureCLient
     );
 
+    renderAudioClient->GetService(
+        __uuidof(IAudioRenderClient),
+        (void**)&renderClient
+    );
+
     audioClient->Start();
+    renderAudioClient->Start();
 
     while(true){
         UINT32 packetLength = 0;
@@ -65,20 +89,30 @@ int main()
 
         while(packetLength != 0){
             BYTE* data;
+            BYTE* renderData;
             UINT32 numFramesAvailable;
             DWORD flag = 0;
 
             captureCLient->GetBuffer(&data, &numFramesAvailable, &flag, nullptr, nullptr);
+            renderClient->GetBuffer(numFramesAvailable, &renderData);
 
-            float* sample = (float*)data;
+            float* input = (float*)data;
+            float* output = (float*)renderData;
 
-            float total = 0;
+            UINT32 channels = pwfx->nChannels;
 
             for (UINT32 idx = 0; idx < numFramesAvailable; idx++) {
-                //std::cout << sample[idx] << std::endl;
-                total += sample[idx];
+                for (UINT32 channel = 0; channel < channels; channel++) {
+                    float sample = input[idx * channels + channel];
+
+                    sample *= 2;
+
+                    output[idx * channels + channel] = sample;
+                }
+
             }
-            std::cout << total << std::endl;
+
+            renderClient->ReleaseBuffer(numFramesAvailable, 0);
             captureCLient->ReleaseBuffer(numFramesAvailable);
             captureCLient->GetNextPacketSize(&packetLength);
         }
