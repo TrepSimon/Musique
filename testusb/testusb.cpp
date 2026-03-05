@@ -14,7 +14,8 @@ int main()
     hr = CoInitialize(nullptr);
 
     IMMDeviceEnumerator* enumerator = NULL;
-    IMMDevice* device = NULL;
+    IMMDevice* renderDevice = NULL;
+    IMMDevice* captureDevice = NULL;
     IAudioClient* audioClient = NULL;
     IAudioClient* renderAudioClient = NULL;
 
@@ -27,34 +28,43 @@ int main()
     );
 
     hr = enumerator->GetDefaultAudioEndpoint(
-        eCapture, //changer en eCapture ou eRender
+        eRender, 
         eConsole,
-        &device
+        &renderDevice
         );
 
-    hr = device->Activate(
+    hr = enumerator->GetDefaultAudioEndpoint(
+        eCapture,
+        eConsole,
+        &captureDevice
+    );
+
+    hr = captureDevice->Activate(
         __uuidof(IAudioClient),
         CLSCTX_ALL,
         nullptr,
         (void**)&audioClient
     );
 
-    hr = device->Activate(
+    hr = renderDevice->Activate(
         __uuidof(IAudioClient),
         CLSCTX_ALL,
         nullptr,
         (void**)&renderAudioClient
     );
 
-    WAVEFORMATEX* pwfx = NULL;
-    audioClient->GetMixFormat(&pwfx);
+    WAVEFORMATEX* captureFormat = NULL;
+    WAVEFORMATEX* renderFormat = NULL;
+
+    audioClient->GetMixFormat(&captureFormat);
+    renderAudioClient->GetMixFormat(&renderFormat);
 
     audioClient->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
-        AUDCLNT_STREAMFLAGS_LOOPBACK,//enlever ca ou AUDCLNT_STREAMFLAGS_LOOPBACK
+        0,
         10000000,
         0,
-        pwfx,
+        captureFormat,
         NULL
     );
 
@@ -63,14 +73,14 @@ int main()
         0,
         10000000,
         0,
-        pwfx,
+        renderFormat,
         NULL
     );
 
     IAudioCaptureClient* captureCLient = nullptr;
     IAudioRenderClient* renderClient = nullptr;
 
-    audioClient->GetService(
+    hr = audioClient->GetService(
         __uuidof(IAudioCaptureClient),
         (void**)&captureCLient
     );
@@ -96,10 +106,12 @@ int main()
             captureCLient->GetBuffer(&data, &numFramesAvailable, &flag, nullptr, nullptr);
             renderClient->GetBuffer(numFramesAvailable, &renderData);
 
+            if (flag & AUDCLNT_BUFFERFLAGS_SILENT)memset(renderData, 0, numFramesAvailable * renderFormat->nBlockAlign);
+
             float* input = (float*)data;
             float* output = (float*)renderData;
 
-            UINT32 channels = pwfx->nChannels;
+            UINT32 channels = captureFormat->nChannels;
 
             for (UINT32 idx = 0; idx < numFramesAvailable; idx++) {
                 for (UINT32 channel = 0; channel < channels; channel++) {
