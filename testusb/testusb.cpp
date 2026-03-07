@@ -4,6 +4,7 @@
 #include <Windows.h>
 #include <mmdeviceapi.h>
 #include <Audioclient.h>
+#include <math.h>
 
 #pragma comment(lib, "ole32.lib")
 
@@ -93,6 +94,8 @@ int main()
     audioClient->Start();
     renderAudioClient->Start();
 
+    float drive = 5;
+
     while(true){
         UINT32 packetLength = 0;
         captureCLient->GetNextPacketSize(&packetLength);
@@ -117,7 +120,17 @@ int main()
                 for (UINT32 channel = 0; channel < channels; channel++) {
                     float sample = input[idx * channels + channel];
 
-                    sample *= 2;
+                    //amplificateur
+                    //sample *= 10;
+
+                    //soft clip
+                    //sample = std::tanh(sample * drive);
+
+                    //hardclip
+                    /*sample *= drive;
+
+                    if (sample > 1)sample = 1;
+                    else if (sample < -1)sample = -1;*/
 
                     output[idx * channels + channel] = sample;
                 }
