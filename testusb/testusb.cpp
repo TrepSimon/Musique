@@ -6,8 +6,6 @@
 #include <Audioclient.h>
 #include <math.h>
 
-#pragma comment(lib, "ole32.lib")
-
 int main()
 {
     HRESULT hr;
@@ -60,6 +58,7 @@ int main()
     audioClient->GetMixFormat(&captureFormat);
     renderAudioClient->GetMixFormat(&renderFormat);
 
+
     audioClient->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
         0,
@@ -69,7 +68,7 @@ int main()
         NULL
     );
 
-    renderAudioClient->Initialize(
+    hr = renderAudioClient->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
         0,
         10000000,
@@ -77,6 +76,11 @@ int main()
         renderFormat,
         NULL
     );
+
+    if (FAILED(hr)) {
+        std::cout << "failed\n";
+        std::cout << "Initialize error: 0x" << std::hex << hr << std::endl;
+    }
 
     IAudioCaptureClient* captureCLient = nullptr;
     IAudioRenderClient* renderClient = nullptr;
@@ -86,7 +90,7 @@ int main()
         (void**)&captureCLient
     );
 
-    renderAudioClient->GetService(
+    hr = renderAudioClient->GetService(
         __uuidof(IAudioRenderClient),
         (void**)&renderClient
     );
@@ -94,11 +98,12 @@ int main()
     audioClient->Start();
     renderAudioClient->Start();
 
-    float drive = 5;
+    float drive = 10;
 
     while(true){
         UINT32 packetLength = 0;
         captureCLient->GetNextPacketSize(&packetLength);
+        
 
         while(packetLength != 0){
             BYTE* data;
@@ -107,6 +112,7 @@ int main()
             DWORD flag = 0;
 
             captureCLient->GetBuffer(&data, &numFramesAvailable, &flag, nullptr, nullptr);
+
             renderClient->GetBuffer(numFramesAvailable, &renderData);
 
             if (flag & AUDCLNT_BUFFERFLAGS_SILENT)memset(renderData, 0, numFramesAvailable * renderFormat->nBlockAlign);
@@ -121,7 +127,7 @@ int main()
                     float sample = input[idx * channels + channel];
 
                     //amplificateur
-                    //sample *= 10;
+                    //sample *= drive;
 
                     //soft clip
                     //sample = std::tanh(sample * drive);
@@ -141,7 +147,6 @@ int main()
             captureCLient->ReleaseBuffer(numFramesAvailable);
             captureCLient->GetNextPacketSize(&packetLength);
         }
-        Sleep(10);
     }
 }
 
