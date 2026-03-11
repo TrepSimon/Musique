@@ -138,6 +138,15 @@ int main()
                     if (sample > 1)sample = 1;
                     else if (sample < -1)sample = -1;*/
 
+                    //waveshaping
+                    /*sample *= drive;
+                    sample = sample / (1 + fabs(sample));*/
+
+                    //overdrive
+                    /*sample *= drive;
+                    if (sample > 0)sample = 1 - exp(-sample);
+                    else sample = -1 + exp(sample);*/
+
                     output[idx * channels + channel] = sample;
                 }
 
