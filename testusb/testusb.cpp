@@ -5,6 +5,14 @@
 #include <mmdeviceapi.h>
 #include <Audioclient.h>
 #include <math.h>
+#include <vector>
+
+template <class T> void releaseBuffer(T** ppt) {
+    if (*ppt) {
+        (*ppt)->Release();
+        *ppt = NULL;
+    }
+}
 
 int main()
 {
@@ -52,28 +60,32 @@ int main()
         (void**)&renderAudioClient
     );
 
-    WAVEFORMATEX* captureFormat = NULL;
-    WAVEFORMATEX* renderFormat = NULL;
+    /*WAVEFORMATEX* captureFormat = NULL;
+    WAVEFORMATEX* renderFormat = NULL;*/
+    WAVEFORMATEX* pwf = NULL;
 
-    audioClient->GetMixFormat(&captureFormat);
-    renderAudioClient->GetMixFormat(&renderFormat);
+    audioClient->GetMixFormat(&pwf);
+
+
+    /*audioClient->GetMixFormat(&captureFormat);
+    renderAudioClient->GetMixFormat(&renderFormat);*/
 
 
     audioClient->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
+        AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+        100000,
         0,
-        10000000,
-        0,
-        captureFormat,
+        pwf,
         NULL
     );
 
     hr = renderAudioClient->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
         0,
-        10000000,
+        100000,
         0,
-        renderFormat,
+        pwf,
         NULL
     );
 
@@ -81,6 +93,9 @@ int main()
         std::cout << "failed\n";
         std::cout << "Initialize error: 0x" << std::hex << hr << std::endl;
     }
+
+    HANDLE hEvent = CreateEvent(NULL, false, false, NULL);
+    audioClient->SetEventHandle(hEvent);
 
     IAudioCaptureClient* captureCLient = nullptr;
     IAudioRenderClient* renderClient = nullptr;
@@ -101,30 +116,40 @@ int main()
     float drive = 10;
 
     while(true){
+        DWORD waitResult = WaitForSingleObject(hEvent, 1000);
+        if (waitResult != WAIT_OBJECT_0)break;
+
         UINT32 packetLength = 0;
         captureCLient->GetNextPacketSize(&packetLength);
         
 
         while(packetLength != 0){
             BYTE* data;
-            BYTE* renderData;
             UINT32 numFramesAvailable;
             DWORD flag = 0;
+            UINT32 padding, bufferLenght, availableRenderSpace;
+
+            renderAudioClient->GetCurrentPadding(&padding);
+            renderAudioClient->GetBufferSize(&bufferLenght);
+
+            availableRenderSpace = bufferLenght - padding;
 
             captureCLient->GetBuffer(&data, &numFramesAvailable, &flag, nullptr, nullptr);
 
-            renderClient->GetBuffer(numFramesAvailable, &renderData);
+            if(numFramesAvailable <= (bufferLenght - padding)){
+                BYTE* renderData;
 
-            if (flag & AUDCLNT_BUFFERFLAGS_SILENT)memset(renderData, 0, numFramesAvailable * renderFormat->nBlockAlign);
+                renderClient->GetBuffer(numFramesAvailable, &renderData);
 
-            float* input = (float*)data;
-            float* output = (float*)renderData;
+                if (flag & AUDCLNT_BUFFERFLAGS_SILENT)memset(renderData, 0, numFramesAvailable * pwf->nBlockAlign);
 
-            UINT32 channels = captureFormat->nChannels;
+                float* input = (float*)data;
+                float* output = (float*)renderData;
 
-            for (UINT32 idx = 0; idx < numFramesAvailable; idx++) {
-                for (UINT32 channel = 0; channel < channels; channel++) {
-                    float sample = input[idx * channels + channel];
+                UINT32 channels = pwf->nChannels;
+
+                for (UINT32 idx = 0; idx < numFramesAvailable * channels; idx++) {
+                    float sample = input[idx];
 
                     //amplificateur
                     //sample *= drive;
@@ -147,16 +172,22 @@ int main()
                     if (sample > 0)sample = 1 - exp(-sample);
                     else sample = -1 + exp(sample);*/
 
-                    output[idx * channels + channel] = sample;
+                    output[idx] = sample;
+
                 }
 
+                renderClient->ReleaseBuffer(numFramesAvailable, 0);
             }
-
-            renderClient->ReleaseBuffer(numFramesAvailable, 0);
             captureCLient->ReleaseBuffer(numFramesAvailable);
             captureCLient->GetNextPacketSize(&packetLength);
         }
     }
+
+    CloseHandle(hEvent);
+    CoTaskMemFree(pwf);
+    releaseBuffer(&audioClient);
+    releaseBuffer(&renderAudioClient);
+    CoUninitialize();
 }
 
 
