@@ -6,6 +6,7 @@
 #include <Audioclient.h>
 #include <math.h>
 #include <vector>
+#include <queue>
 
 template <class T> void releaseBuffer(T** ppt) {
     if (*ppt) {
@@ -60,16 +61,9 @@ int main()
         (void**)&renderAudioClient
     );
 
-    /*WAVEFORMATEX* captureFormat = NULL;
-    WAVEFORMATEX* renderFormat = NULL;*/
     WAVEFORMATEX* pwf = NULL;
 
     audioClient->GetMixFormat(&pwf);
-
-
-    /*audioClient->GetMixFormat(&captureFormat);
-    renderAudioClient->GetMixFormat(&renderFormat);*/
-
 
     audioClient->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
@@ -114,6 +108,7 @@ int main()
     renderAudioClient->Start();
 
     float drive = 10;
+    int waitFrames = 10000;
 
     while(true){
         DWORD waitResult = WaitForSingleObject(hEvent, 1000);
@@ -121,7 +116,6 @@ int main()
 
         UINT32 packetLength = 0;
         captureCLient->GetNextPacketSize(&packetLength);
-        
 
         while(packetLength != 0){
             BYTE* data;
@@ -148,8 +142,12 @@ int main()
 
                 UINT32 channels = pwf->nChannels;
 
+                std::queue<float> delayedData = std::queue<float>();
+                int frameCount = 0;
+
                 for (UINT32 idx = 0; idx < numFramesAvailable * channels; idx++) {
                     float sample = input[idx];
+                    delayedData.push(sample);
 
                     //amplificateur
                     //sample *= drive;
@@ -172,8 +170,15 @@ int main()
                     if (sample > 0)sample = 1 - exp(-sample);
                     else sample = -1 + exp(sample);*/
 
-                    output[idx] = sample;
+                    //delay
+                    if (frameCount >= waitFrames) {
+                        float delayedSample = delayedData.front();
+                        delayedData.pop();
+                        sample += delayedSample;
+                    }
+                    else frameCount++;
 
+                    output[idx] = sample;
                 }
 
                 renderClient->ReleaseBuffer(numFramesAvailable, 0);
